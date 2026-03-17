@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "attnres-compare"
+version = "0.1.0"
+description = "Research-grade pretraining harness for comparing standard residual streams vs full attention residuals"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.2",
+  "numpy>=1.25",
+  "pyyaml>=6.0",
+  "tqdm>=4.66",
+  "datasets>=2.20",
+  "transformers>=4.45",
+  "wandb>=0.19",
+  "matplotlib>=3.8"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100

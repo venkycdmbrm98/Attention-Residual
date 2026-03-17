@@ -1,0 +1,243 @@
+# AttnRes comparison pretraining harness
+
+This is a small but research-grade pretraining harness for a clean paired comparison between:
+
+- a standard PreNorm residual-stream decoder-only Transformer, and
+- a Full Attention Residuals (AttnRes) decoder-only Transformer.
+
+The implementation is designed for the exact study you described: keep everything identical except the residual-stream mechanism, train both models with the same data order and same shared initialization, and log the right diagnostics so later mechanistic-interpretability work is easy.
+
+## What is implemented
+
+### Architecture
+
+- `baseline`: standard PreNorm residual updates
+  - `x = x + attn(norm(x))`
+  - `x = x + mlp(norm(x))`
+- `full_attnres`: Full Attention Residuals
+  - each attention and MLP sublayer is treated as its own depth step
+  - each step has a learned depth-query vector and an RMSNorm on depth keys
+  - the model includes a final output depth mixer before the final norm / LM head
+  - all AttnRes query vectors are zero-initialized
+
+### Reproducibility / fairness
+
+- identical tokenizer and tokenized memmaps for both models
+- explicit saved `train_plan.npy` / `val_plan.npy` so both runs see the exact same windows in the exact same order
+- deterministic paired initialization for all shared parameters
+  - same named shared parameters get the same values independent of module construction order
+- dropout defaults to `0.0`
+- one-file resolved config is saved to every run directory
+- shared-backbone fingerprint is saved to `run_info.json`
+
+### Training system
+
+- PyTorch causal LM trainer with optional DDP via `torchrun`
+- BF16 / FP16 / FP32 support
+- gradient accumulation
+- AdamW optimizer
+- cosine or WSD schedule
+- checkpointing and resume
+- Weights & Biases integration
+- validation loop with fixed evaluation batches
+- training diagnostics for later analysis
+
+### Diagnostics already logged
+
+Common to both models:
+
+- train loss
+- validation loss / perplexity
+- learning rate
+- global grad norm
+- tokens seen
+- tokens / second
+- max CUDA memory
+- per-block gradient norms
+- residual / sublayer RMS summaries
+
+AttnRes-specific:
+
+- depth-attention entropy summaries
+- embedding weight summaries
+- immediate-predecessor weight summaries
+- depth-query norm summaries
+- heatmaps of pre-attention and pre-MLP depth weights
+
+These are exactly the things you want before doing deeper mech interp, because they tell you whether the AttnRes model is actually using the extra depth access in a structured way.
+
+## Repo layout
+
+```text
+configs/
+  delayed_kv_baseline.yaml
+  delayed_kv_attnres.yaml
+  tinystories_baseline.yaml
+  tinystories_attnres.yaml
+scripts/
+  pretokenize_hf.py
+  build_delayed_kv.py
+  build_batch_plan.py
+  check_paired_init.py
+  train.py
+src/attnres_compare/
+  config.py
+  train.py
+  data/
+  models/
+  utils/
+```
+
+## Installation
+
+```bash
+cd attnres_pretrain_setup
+pip install -e .
+```
+
+## Quick start: synthetic delayed key-value retrieval
+
+### 1) Build the synthetic corpus
+
+```bash
+python scripts/build_delayed_kv.py \
+  --output-dir data/delayed_kv \
+  --train-examples 200000 \
+  --val-examples 10000 \
+  --num-keys 256 \
+  --pairs-per-example 8 \
+  --noise-tokens 8 \
+  --seed 1337
+```
+
+### 2) Build a deterministic batch plan
+
+```bash
+TRAIN_TOKENS=$(python - <<'PY'
+import json
+print(json.load(open('data/delayed_kv/train_meta.json'))['num_tokens'])
+PY
+)
+VAL_TOKENS=$(python - <<'PY'
+import json
+print(json.load(open('data/delayed_kv/val_meta.json'))['num_tokens'])
+PY
+)
+
+python scripts/build_batch_plan.py \
+  --train-num-tokens "$TRAIN_TOKENS" \
+  --val-num-tokens "$VAL_TOKENS" \
+  --seq-len 128 \
+  --micro-batch-size 32 \
+  --world-size 1 \
+  --grad-accum-steps 1 \
+  --max-steps 10000 \
+  --num-val-batches 64 \
+  --seed 1337 \
+  --output-dir data/delayed_kv/plans
+```
+
+### 3) Verify paired initialization
+
+```bash
+python scripts/check_paired_init.py \
+  --baseline-config configs/delayed_kv_baseline.yaml \
+  --attnres-config configs/delayed_kv_attnres.yaml
+```
+
+### 4) Train the baseline
+
+```bash
+python scripts/train.py --config configs/delayed_kv_baseline.yaml
+```
+
+### 5) Train Full AttnRes
+
+```bash
+python scripts/train.py --config configs/delayed_kv_attnres.yaml
+```
+
+## Quick start: TinyStories
+
+### 1) Pretokenize TinyStories
+
+Example command:
+
+```bash
+python scripts/pretokenize_hf.py \
+  --dataset roneneldan/TinyStories \
+  --train-split train \
+  --val-split validation \
+  --text-field text \
+  --tokenizer gpt2 \
+  --append-eos \
+  --output-dir data/tinystories
+```
+
+### 2) Build the batch plan
+
+```bash
+TRAIN_TOKENS=$(python - <<'PY'
+import json
+print(json.load(open('data/tinystories/train_meta.json'))['num_tokens'])
+PY
+)
+VAL_TOKENS=$(python - <<'PY'
+import json
+print(json.load(open('data/tinystories/val_meta.json'))['num_tokens'])
+PY
+)
+
+python scripts/build_batch_plan.py \
+  --train-num-tokens "$TRAIN_TOKENS" \
+  --val-num-tokens "$VAL_TOKENS" \
+  --seq-len 256 \
+  --micro-batch-size 16 \
+  --world-size 1 \
+  --grad-accum-steps 4 \
+  --max-steps 30000 \
+  --num-val-batches 64 \
+  --seed 1337 \
+  --output-dir data/tinystories/plans
+```
+
+### 3) Train both paired runs
+
+```bash
+python scripts/train.py --config configs/tinystories_baseline.yaml
+python scripts/train.py --config configs/tinystories_attnres.yaml
+```
+
+## Multi-GPU usage
+
+As long as the world size matches the batch plan, you can launch with `torchrun`:
+
+```bash
+torchrun --standalone --nproc_per_node=4 scripts/train.py --config configs/tinystories_baseline.yaml
+torchrun --standalone --nproc_per_node=4 scripts/train.py --config configs/tinystories_attnres.yaml
+```
+
+When using DDP, rebuild the batch plan with the same `--world-size`.
+
+## High-level experimental protocol
+
+For your first paper-quality comparison, use this order:
+
+1. Delayed key-value retrieval
+2. TinyStories
+3. Then only after the training curves and diagnostics look sane, start the deeper mech-interp work
+
+The later mechanistic-interpretability pass should consume the saved checkpoints and W&B diagnostics, not drive architecture debugging during pretraining.
+
+## A good minimal result package
+
+For every seed and every model, keep:
+
+- resolved config
+- run info JSON
+- train / val curves
+- latest checkpoint and a few milestone checkpoints
+- depth-weight heatmaps for AttnRes
+- per-layer RMS and grad summaries
+
+That set is enough to support the later probe / patching / induction-head study without retraining.

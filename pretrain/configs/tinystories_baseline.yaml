@@ -1,0 +1,50 @@
+model:
+  variant: baseline
+  n_layers: 10
+  d_model: 384
+  n_heads: 6
+  d_ff: 1536
+  max_seq_len: 256
+  dropout: 0.0
+  mlp_type: swiglu
+
+data:
+  train_path: data/tinystories/train.bin
+  val_path: data/tinystories/val.bin
+  train_meta_path: data/tinystories/train_meta.json
+  val_meta_path: data/tinystories/val_meta.json
+  seq_len: 256
+  train_batch_plan: data/tinystories/plans/train_plan.npy
+  val_batch_plan: data/tinystories/plans/val_plan.npy
+  val_num_batches: 64
+
+optim:
+  optimizer: adamw
+  lr: 0.0006
+  min_lr: 0.00006
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  max_steps: 30000
+  warmup_steps: 1000
+  scheduler: cosine
+
+train:
+  seed: 1337
+  micro_batch_size: 16
+  grad_accum_steps: 4
+  dtype: bfloat16
+  compile: false
+  log_interval: 10
+  eval_interval: 250
+  checkpoint_interval: 1000
+  diag_interval: 250
+  output_dir: outputs/tinystories_baseline
+
+wandb:
+  mode: online
+  project: attnres-compare
+  group: tinystories-10l-384d
+  name: tinystories-baseline
+  tags: [tinystories, baseline, prenorm]
