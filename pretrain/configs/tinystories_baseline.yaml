@@ -41,6 +41,7 @@ train:
   checkpoint_interval: 1000
   diag_interval: 250
   output_dir: outputs/tinystories_baseline
+  resume_path: outputs/tinystories_baseline/checkpoints/latest.pt
 
 wandb:
   mode: online
