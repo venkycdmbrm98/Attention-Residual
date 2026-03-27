@@ -27,11 +27,11 @@ if __name__ == "__main__":
     args = parse_args()
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    train_max_offset = args.train_num_tokens - args.seq_len - 1
+    train_max_offset = args.train_num_tokens - args.seq_len - 2
     val_num_tokens = args.val_num_tokens if args.val_num_tokens is not None else args.train_num_tokens
-    val_max_offset = val_num_tokens - args.seq_len - 1
+    val_max_offset = val_num_tokens - args.seq_len - 2
     if train_max_offset <= 0 or val_max_offset <= 0:
-        raise ValueError("Corpus is shorter than seq_len + 1")
+        raise ValueError("Corpus is shorter than seq_len + 2")
 
     global_micro_batch = args.micro_batch_size * args.world_size
     num_micro_batches = args.max_steps * args.grad_accum_steps

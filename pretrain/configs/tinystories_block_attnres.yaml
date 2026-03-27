@@ -1,13 +1,13 @@
 model:
   variant: block_attnres
-  n_layers: 10
-  d_model: 384
-  n_heads: 6
-  d_ff: 1536
+  n_layers: 14
+  d_model: 768
+  n_heads: 12
+  d_ff: 3072
   max_seq_len: 256
   dropout: 0.0
   mlp_type: swiglu
-  attnres_block_size: 2
+  attnres_block_size: 4
 
 data:
   train_path: data/tinystories/train.bin
@@ -21,31 +21,31 @@ data:
 
 optim:
   optimizer: adamw
-  lr: 0.0006
-  min_lr: 0.00006
+  lr: 0.0003
+  min_lr: 0.00003
   weight_decay: 0.1
   beta1: 0.9
   beta2: 0.95
   grad_clip: 1.0
-  max_steps: 30000
+  max_steps: 60000
   warmup_steps: 1000
   scheduler: cosine
 
 train:
   seed: 1337
-  micro_batch_size: 16
-  grad_accum_steps: 4
+  micro_batch_size: 32
+  grad_accum_steps: 2
   dtype: bfloat16
   compile: false
-  log_interval: 10
+  log_interval: 50
   eval_interval: 250
-  checkpoint_interval: 1000
+  checkpoint_interval: 5000
   diag_interval: 250
   output_dir: outputs/tinystories_block_attnres
 
 wandb:
   mode: online
-  project: attnres-compare
-  group: tinystories-10l-384d
+  project: attnres-compare-2
+  group: tinystories-14l-768d
   name: tinystories-block-attnres
   tags: [tinystories, block-attnres, softmax-depth]
